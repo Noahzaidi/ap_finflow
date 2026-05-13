@@ -1,0 +1,1843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinFlow AP - AI Invoice Processing Demo</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230ea5e9'/%3E%3Cpath d='M18 18h28v6H25v8h18v6H25v12h-7z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    :root {
+      --primary: #0ea5e9;
+      --primary-hover: #0284c7;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --error: #ef4444;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --page: #f1f5f9;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 1280px;
+      min-height: 100vh;
+      overflow: hidden;
+      background: var(--page);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button,
+    .interactive {
+      transition: all 150ms ease;
+    }
+
+    .amount,
+    .tabular {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .panel-title {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .scrollbar-thin {
+      scrollbar-width: thin;
+      scrollbar-color: #cbd5e1 transparent;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 999px;
+    }
+
+    .upload-zone.dragging {
+      border-style: solid;
+      background: #eff6ff;
+    }
+
+    .shimmer {
+      background: linear-gradient(90deg, #e2e8f0 25%, #f8fafc 37%, #e2e8f0 63%);
+      background-size: 400% 100%;
+      animation: shimmer 1.2s ease-in-out infinite;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: 0 0; }
+    }
+
+    .spinner {
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .field-edited::after {
+      content: "edited";
+      margin-left: 6px;
+      border-radius: 999px;
+      background: #fef3c7;
+      color: #92400e;
+      padding: 1px 6px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: none;
+      vertical-align: middle;
+    }
+
+    .pdf-canvas {
+      display: block;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+    }
+
+    .modal-backdrop {
+      background: rgba(15, 23, 42, 0.48);
+      backdrop-filter: blur(4px);
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="h-screen min-h-screen grid grid-cols-[260px_minmax(680px,1fr)_340px] bg-slate-100">
+    <aside class="bg-white border-r border-slate-200 shadow-sm flex flex-col min-h-0">
+      <div class="p-4 border-b border-slate-200 flex items-start gap-3">
+        <div class="h-10 w-10 rounded-xl bg-sky-50 text-sky-500 grid place-items-center shrink-0">
+          <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+            <path d="M7 3.25h8.5L20 7.75V22a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.25a1 1 0 0 1 1-1Z" stroke="#0ea5e9" stroke-width="1.8" />
+            <path d="M15.5 3.25V8h4.5" stroke="#0ea5e9" stroke-width="1.8" />
+            <path d="M11 12.5h4M10 16h6" stroke="#0ea5e9" stroke-width="1.8" stroke-linecap="round" />
+            <path d="M20.4 2.6l.55 1.15 1.15.55-1.15.55L20.4 6l-.55-1.15-1.15-.55 1.15-.55.55-1.15Z" fill="#0ea5e9" />
+          </svg>
+        </div>
+        <div class="min-w-0 flex-1">
+          <h1 class="text-[17px] font-extrabold leading-tight text-slate-900">FinFlow AP</h1>
+          <p class="text-xs text-slate-500 mt-0.5">Invoice Intelligence</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-1">
+          <button id="logsBtn" class="h-8 rounded-lg border border-slate-200 px-2 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-1" title="Open logs">
+            <i data-lucide="list-checks" class="h-4 w-4"></i>
+            Logs
+          </button>
+          <button id="settingsBtn" class="h-8 w-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 grid place-items-center" title="Server key status">
+            <i data-lucide="settings" class="h-4 w-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-4 border-b border-slate-200">
+        <label id="uploadZone" class="upload-zone block cursor-pointer rounded-xl border-2 border-dashed border-sky-500 p-5 text-center hover:bg-sky-50">
+          <input id="fileInput" type="file" accept=".pdf,application/pdf" multiple class="hidden" />
+          <i data-lucide="upload-cloud" class="h-8 w-8 mx-auto text-sky-500"></i>
+          <div class="mt-3 text-sm font-semibold text-slate-900">Drop invoices here</div>
+          <div class="mt-1 text-xs text-slate-500">PDF files | up to 20 invoices</div>
+        </label>
+        <button id="loadDemoBtn" class="mt-3 w-full text-center text-xs font-semibold text-sky-600 hover:text-sky-700">Or load demo invoices</button>
+      </div>
+
+      <div id="demoBanner" class="hidden mx-4 mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800">
+        Demo mode - using sample data. Entered API key is still kept in memory only.
+      </div>
+
+      <div class="px-4 pt-4 pb-2 flex items-center justify-between">
+        <div class="panel-title">Invoices</div>
+        <div id="fileCount" class="text-xs text-slate-500 tabular">0</div>
+      </div>
+      <div id="fileList" class="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 pb-3 space-y-2"></div>
+
+      <div class="p-4 border-t border-slate-200 bg-white">
+        <button id="processAllBtn" class="w-full rounded-lg bg-sky-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300">
+          Process All
+        </button>
+        <div id="progressWrap" class="hidden mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+          <div id="progressBar" class="h-full rounded-full bg-sky-500" style="width:0%"></div>
+        </div>
+        <div id="statsBar" class="mt-3 text-xs text-slate-500 tabular">0 uploaded | 0 done | 0 flagged | 0 pending</div>
+      </div>
+    </aside>
+
+    <main class="bg-slate-200 min-h-0 flex flex-col">
+      <div id="viewerChrome" class="h-[58px] bg-white border-b border-slate-200 shadow-sm px-4 flex items-center gap-3"></div>
+      <div id="viewer" class="flex-1 min-h-0 overflow-y-auto scrollbar-thin"></div>
+    </main>
+
+    <aside class="bg-white border-l border-slate-200 min-h-0 flex flex-col">
+      <div id="rightPanel" class="flex-1 min-h-0 overflow-y-auto scrollbar-thin"></div>
+      <div id="summaryFooter" class="border-t border-slate-200 bg-white p-4 sticky bottom-0 shadow-[0_-8px_20px_rgba(15,23,42,0.06)]"></div>
+    </aside>
+  </div>
+
+  <div id="exportWarningModal" class="fixed inset-0 z-40 hidden modal-backdrop items-center justify-center p-6">
+    <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+      <div class="h-12 w-12 rounded-xl bg-amber-50 text-amber-500 grid place-items-center">
+        <i data-lucide="triangle-alert" class="h-6 w-6"></i>
+      </div>
+      <h2 class="mt-4 text-lg font-extrabold text-slate-900">Export invoices with warnings?</h2>
+      <p id="exportWarningText" class="mt-2 text-sm leading-6 text-slate-600"></p>
+      <div class="mt-5 grid grid-cols-2 gap-3">
+        <button id="cancelExportBtn" class="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+        <button id="confirmExportBtn" class="rounded-lg bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-600">Export with warnings</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="logsOverlay" class="fixed inset-0 z-50 hidden bg-slate-100">
+    <div class="h-screen min-h-screen flex flex-col">
+      <div class="h-16 bg-white border-b border-slate-200 px-5 flex items-center gap-4 shadow-sm">
+        <div class="h-10 w-10 rounded-xl bg-sky-50 text-sky-500 grid place-items-center">
+          <i data-lucide="list-checks" class="h-5 w-5"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <h2 class="text-lg font-extrabold text-slate-900">FinFlow Logs</h2>
+          <p id="logsMeta" class="text-xs text-slate-500">Audit and invoice history</p>
+        </div>
+        <button id="logsCloseBtn" class="h-9 w-9 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 grid place-items-center" title="Close logs">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <div class="bg-white border-b border-slate-200 px-5 py-3 flex items-center gap-3">
+        <div class="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+          <button id="auditTabBtn" class="px-4 py-2 text-sm font-bold bg-sky-500 text-white">Audit Trail</button>
+          <button id="invoiceTabBtn" class="px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">Invoice Log</button>
+        </div>
+        <div class="relative flex-1 max-w-md">
+          <i data-lucide="search" class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"></i>
+          <input id="logsSearchInput" type="search" placeholder="Search invoice number or vendor" class="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-100" />
+        </div>
+      </div>
+
+      <div id="logsTableWrap" class="flex-1 min-h-0 overflow-auto scrollbar-thin p-5"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="pointer-events-none fixed bottom-5 left-1/2 z-[60] hidden -translate-x-1/2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-xl"></div>
+
+  <script>
+    if (location.protocol === "file:") {
+      location.replace("http://127.0.0.1:8787/finflow-ap.html");
+      throw new Error("Redirecting to the local FinFlow AP server.");
+    }
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    const DEMO_INVOICES = [
+      {
+        filename: "INV_01_AWS_Europe.pdf",
+        vendor_name: "AWS Europe BV",
+        vendor_vat: "NL859439178B01",
+        invoice_number: "AWS-2026-04-0441",
+        invoice_date: "2026-04-01",
+        due_date: "2026-05-01",
+        currency: "EUR",
+        subtotal: 3640.00,
+        vat_percentage: 21,
+        vat_amount: 764.40,
+        total_amount: 4404.40,
+        line_items: [
+          {description: "EC2 Compute - March 2026", quantity: 1, unit_price: 2840.00, amount: 2840.00},
+          {description: "S3 Storage - March 2026", quantity: 1, unit_price: 480.00, amount: 480.00},
+          {description: "CloudFront CDN", quantity: 1, unit_price: 320.00, amount: 320.00}
+        ],
+        flags: []
+      },
+      {
+        filename: "INV_09_Office_Depot.pdf",
+        vendor_name: "Office Depot Netherlands",
+        vendor_vat: null,
+        invoice_number: "OD-2026-044-8821",
+        invoice_date: "2026-04-06",
+        due_date: "2026-04-20",
+        currency: "EUR",
+        subtotal: 520.00,
+        vat_percentage: 21,
+        vat_amount: 109.20,
+        total_amount: 629.20,
+        line_items: [
+          {description: "Office supplies - Q1 restock", quantity: 1, unit_price: 340.00, amount: 340.00},
+          {description: "Printer cartridges x10", quantity: 10, unit_price: 18.00, amount: 180.00}
+        ],
+        flags: [{type: "missing_vat", severity: "error", title: "Missing VAT Number", msg: "VAT number not found on invoice"}]
+      },
+      {
+        filename: "INV_10_Prologis_Rent.pdf",
+        vendor_name: "Prologis Netherlands BV",
+        vendor_vat: "NL005033987B01",
+        invoice_number: "PRO-AMS-2026-04",
+        invoice_date: "2026-04-07",
+        due_date: "2026-05-07",
+        currency: "EUR",
+        subtotal: 8500.00,
+        vat_percentage: 21,
+        vat_amount: 1785.00,
+        total_amount: 10285.00,
+        line_items: [
+          {description: "Office Rent - Prinsengracht Amsterdam - April 2026", quantity: 1, unit_price: 8500.00, amount: 8500.00}
+        ],
+        flags: []
+      },
+      {
+        filename: "INV_12_Stripe_Fees.pdf",
+        vendor_name: "Stripe Payments Europe Ltd",
+        vendor_vat: "IE3206488LH",
+        invoice_number: "STRIPE-2026-04-FEE",
+        invoice_date: "2026-04-08",
+        due_date: "2026-04-08",
+        currency: "EUR",
+        subtotal: 980.00,
+        vat_percentage: 0,
+        vat_amount: 0.00,
+        total_amount: 980.00,
+        line_items: [
+          {description: "Payment processing fees - March 2026", quantity: 1, unit_price: 980.00, amount: 980.00}
+        ],
+        flags: []
+      },
+      {
+        filename: "INV_15_TechSupplies_NL.pdf",
+        vendor_name: "TechSupplies NL BV",
+        vendor_vat: "NL851234789B01",
+        invoice_number: "TS-2026-04-0992",
+        invoice_date: "2026-04-11",
+        due_date: "2026-04-25",
+        currency: "EUR",
+        subtotal: 5362.00,
+        vat_percentage: 21,
+        vat_amount: 1125.02,
+        total_amount: 6637.02,
+        line_items: [
+          {description: "MacBook Pro 14 M3", quantity: 2, unit_price: 2499.00, amount: 4998.00},
+          {description: "External monitors 27inch", quantity: 3, unit_price: 349.00, amount: 1047.00},
+          {description: "USB-C docking stations", quantity: 3, unit_price: 89.00, amount: 267.00}
+        ],
+        flags: [{type: "total_mismatch", severity: "error", title: "Total Mismatch", msg: "Line items sum to EUR 6,325.60, invoice states EUR 6,637.02 (+EUR 311.42)"}]
+      }
+    ];
+
+    const accountMap = {
+      keywords: [
+        { match: ["aws","cloud","azure","gcp","digitalocean"], account: "6100 - IFRS OPEX: Cloud Infrastructure" },
+        { match: ["google","workspace","microsoft","github","figma","miro","slack","zoom","notion","linear","datadog","intercom","hubspot","zendesk","personio"], account: "6200 - IFRS OPEX: Software & Subscriptions" },
+        { match: ["rent","huur","prologis","office space","kantoor"], account: "6300 - IFRS OPEX: Short-term Lease & Office Rent" },
+        { match: ["legal","notaris","advocaat","legalpad","juridisch"], account: "6500 - IFRS OPEX: Professional Services" },
+        { match: ["accountan","audit","baker","deloitte","kpmg","pwc","boekhouding"], account: "6510 - IFRS OPEX: Audit & Accounting Fees" },
+        { match: ["office depot","supplies","kantoorartikelen","printer","equipment","macbook","laptop","monitor"], account: "6600 - IFRS OPEX: Equipment & Office Supplies" },
+        { match: ["stripe","payment","processing fee","transaction"], account: "6700 - IFRS OPEX: Payment Processing Fees" },
+        { match: ["salary","salaris","payroll","personnel"], account: "6800 - IFRS OPEX: Employee Benefits Expense" }
+      ],
+      default: "6900 - IFRS OPEX: General Administrative Expenses",
+      vatReceivable: "1500 - IFRS Current Asset: VAT Receivable",
+      accountsPayable: "2000 - IFRS Current Liability: Trade Payables"
+    };
+
+    const EXPECTED_BILL_TO_COMPANY = "Demo Company B.V.";
+    const STANDARD_VAT_RATE = 21;
+
+    const app = {
+      serverHasApiKey: false,
+      invoices: [],
+      selectedId: null,
+      zoom: 1,
+      processing: false,
+      demoMode: false,
+      pendingExportAfterWarning: false,
+      logsOpen: false,
+      activeLogsTab: "audit",
+      auditLogs: [],
+      invoiceLogs: [],
+      logsSearch: "",
+      logsTimer: null,
+      logsLastUpdated: null
+    };
+
+    const els = {
+      uploadZone: document.getElementById("uploadZone"),
+      fileInput: document.getElementById("fileInput"),
+      loadDemoBtn: document.getElementById("loadDemoBtn"),
+      demoBanner: document.getElementById("demoBanner"),
+      fileList: document.getElementById("fileList"),
+      fileCount: document.getElementById("fileCount"),
+      processAllBtn: document.getElementById("processAllBtn"),
+      progressWrap: document.getElementById("progressWrap"),
+      progressBar: document.getElementById("progressBar"),
+      statsBar: document.getElementById("statsBar"),
+      viewerChrome: document.getElementById("viewerChrome"),
+      viewer: document.getElementById("viewer"),
+      rightPanel: document.getElementById("rightPanel"),
+      summaryFooter: document.getElementById("summaryFooter"),
+      logsBtn: document.getElementById("logsBtn"),
+      settingsBtn: document.getElementById("settingsBtn"),
+      exportWarningModal: document.getElementById("exportWarningModal"),
+      exportWarningText: document.getElementById("exportWarningText"),
+      cancelExportBtn: document.getElementById("cancelExportBtn"),
+      confirmExportBtn: document.getElementById("confirmExportBtn"),
+      logsOverlay: document.getElementById("logsOverlay"),
+      logsCloseBtn: document.getElementById("logsCloseBtn"),
+      auditTabBtn: document.getElementById("auditTabBtn"),
+      invoiceTabBtn: document.getElementById("invoiceTabBtn"),
+      logsSearchInput: document.getElementById("logsSearchInput"),
+      logsTableWrap: document.getElementById("logsTableWrap"),
+      logsMeta: document.getElementById("logsMeta"),
+      toast: document.getElementById("toast")
+    };
+
+    function uid() {
+      return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes) return "0 KB";
+      const kb = bytes / 1024;
+      return kb > 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(kb))} KB`;
+    }
+
+    function money(value, currency = "EUR") {
+      const n = Number(value || 0);
+      return `${currency} ${n.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    }
+
+    function toCsvDate(value) {
+      if (!value) return "";
+      const parts = String(value).split("-");
+      if (parts.length !== 3) return value;
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+
+    function parseIsoDate(value) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+      const [year, month, day] = String(value).split("-").map(Number);
+      const date = new Date(year, month - 1, day);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function todayStart() {
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+
+    function daysBetween(start, end) {
+      return Math.floor((end.getTime() - start.getTime()) / 86400000);
+    }
+
+    function normalizeKey(value) {
+      return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+    }
+
+    function selectedInvoice() {
+      return app.invoices.find(inv => inv.id === app.selectedId) || null;
+    }
+
+    function normalizeFlags(flags) {
+      return (flags || []).map(flag => ({
+        type: flag.type || "warning",
+        severity: flag.severity || (flag.type === "total_mismatch" || flag.type === "missing_vat" ? "error" : "warning"),
+        title: flag.title || titleForFlag(flag.type),
+        msg: flag.msg || "Review this invoice before posting."
+      }));
+    }
+
+    function titleForFlag(type) {
+      const titles = {
+        missing_vat: "Missing VAT Number",
+        total_mismatch: "Total Mismatch",
+        same_invoice_number: "Duplicate Invoice",
+        duplicate_invoice: "Duplicate Invoice",
+        old_submission: "Old Submission",
+        old_invoice: "Old Submission",
+        overdue_due_date: "Due Date Already Passed",
+        wrong_vat_rate: "Wrong VAT Rate",
+        wrong_entity: "Wrong Entity",
+        zero_vat: "0% VAT Warning",
+        missing_required: "Missing Required Field",
+        line_mismatch: "Line Items Mismatch"
+      };
+      return titles[type] || "Review Required";
+    }
+
+    function validateInvoiceData(data) {
+      if (!data) return [];
+      const computedFlagTypes = new Set(["missing_required", "missing_vat", "total_mismatch", "line_mismatch", "zero_vat", "same_invoice_number", "duplicate_invoice", "old_submission", "old_invoice", "overdue_due_date", "wrong_vat_rate", "wrong_entity"]);
+      const flags = normalizeFlags(data.flags).filter(flag => !computedFlagTypes.has(flag.type));
+      const subtotal = Number(data.subtotal || 0);
+      const vat = Number(data.vat_amount || 0);
+      const total = Number(data.total_amount || 0);
+      const computedTotal = subtotal + vat;
+      const lineSum = (data.line_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const invoiceDate = parseIsoDate(data.invoice_date);
+      const dueDate = parseIsoDate(data.due_date);
+      const today = todayStart();
+      const vendorKey = normalizeKey(data.vendor_name);
+      const invoiceNumberKey = normalizeKey(data.invoice_number);
+      const billToKey = normalizeKey(data.bill_to_company);
+      const expectedBillToKey = normalizeKey(EXPECTED_BILL_TO_COMPANY);
+      const vatRate = Number(data.vat_percentage);
+
+      if (!data.vendor_name || !data.invoice_number || !data.total_amount) {
+        flags.push({type: "missing_required", severity: "error", title: "Missing Required Field", msg: "Vendor, invoice number, and total amount are required before posting."});
+      }
+      if (isMissingVendorVat(data.vendor_vat)) {
+        data.vendor_vat = null;
+        flags.push({type: "missing_vat", severity: "error", title: "Missing VAT Number", msg: "No VAT number found on this invoice. Verify with supplier before posting."});
+      }
+      if (Math.abs(computedTotal - total) > 1) {
+        flags.push({type: "total_mismatch", severity: "error", title: "Total Mismatch", msg: `Subtotal plus VAT is ${money(computedTotal, data.currency || "EUR")}, invoice states ${money(total, data.currency || "EUR")}. Do not post until resolved.`});
+      }
+      if (lineSum > 0 && subtotal > 0 && Math.abs(lineSum - subtotal) > 1) {
+        flags.push({type: "line_mismatch", severity: "warning", title: "Line Items Mismatch", msg: `Line items sum to ${money(lineSum, data.currency || "EUR")}, subtotal states ${money(subtotal, data.currency || "EUR")}.`});
+      }
+      if (!Number.isNaN(vatRate) && vatRate !== STANDARD_VAT_RATE && !(vatRate === 0 && vendorIsKnownZeroVAT(data.vendor_name))) {
+        flags.push({type: "wrong_vat_rate", severity: "error", title: "Wrong VAT Rate", msg: `VAT rate ${vatRate}% is not valid for automatic AP posting. Expected 21%, or valid 0% for known exempt service fees.`});
+      }
+      if (!Number.isNaN(vatRate) && subtotal > 0) {
+        const expectedVat = subtotal * (vatRate / 100);
+        if (Math.abs(expectedVat - vat) > 1) {
+          flags.push({type: "wrong_vat_rate", severity: "error", title: "Wrong VAT Rate", msg: `VAT amount does not match the extracted rate: ${vatRate}% of ${money(subtotal, data.currency || "EUR")} is ${money(expectedVat, data.currency || "EUR")}, invoice VAT is ${money(vat, data.currency || "EUR")}.`});
+        }
+      }
+      if (billToKey && billToKey !== expectedBillToKey) {
+        flags.push({type: "wrong_entity", severity: "error", title: "Wrong Entity", msg: `Invoice is billed to ${data.bill_to_company}, expected ${EXPECTED_BILL_TO_COMPANY}. Do not post to this subsidiary.`});
+      }
+      if (invoiceNumberKey) {
+        const duplicateNumber = app.invoices.find(inv => inv.data && inv.data !== data && normalizeKey(inv.data.invoice_number) === invoiceNumberKey);
+        if (duplicateNumber) {
+          flags.push({type: "same_invoice_number", severity: "warning", title: "Duplicate Invoice", msg: `Same invoice number already exists in this session: ${duplicateNumber.data.vendor_name || duplicateNumber.name}. Verify before export.`});
+        }
+      }
+      if (vendorKey && total > 0) {
+        const duplicate = app.invoices.find(inv => {
+          if (!inv.data || inv.data === data) return false;
+          const otherVendor = normalizeKey(inv.data.vendor_name);
+          const otherTotal = Number(inv.data.total_amount || 0);
+          return otherVendor === vendorKey && Math.abs(otherTotal - total) < 0.01;
+        });
+        if (duplicate) {
+          flags.push({type: "duplicate_invoice", severity: "warning", title: "Duplicate Invoice", msg: `Same vendor and amount already exist in this session: ${duplicate.data.invoice_number || duplicate.name}. Verify before export.`});
+        }
+      }
+      if (invoiceDate) {
+        const ageDays = daysBetween(invoiceDate, today);
+        if (ageDays > 90) {
+          flags.push({type: "old_submission", severity: "warning", title: "Old Submission", msg: `Invoice date is ${ageDays} days old. Confirm this is still payable before posting.`});
+        }
+      }
+      if (dueDate && dueDate < today) {
+        const overdueDays = daysBetween(dueDate, today);
+        flags.push({type: "overdue_due_date", severity: "warning", title: "Due Date Already Passed", msg: `Due date passed ${overdueDays} day${overdueDays === 1 ? "" : "s"} ago. Check payment status before posting.`});
+      }
+
+      const seen = new Set();
+      return flags.filter(flag => {
+        const key = `${flag.type}-${flag.msg}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function vendorIsKnownZeroVAT(vendorName) {
+      return /stripe|payment processing|bank|paypal/i.test(vendorName || "");
+    }
+
+    function isMissingVendorVat(value) {
+      const normalized = String(value ?? "").trim().toLowerCase();
+      if (!normalized) return true;
+      const missingTokens = ["null", "none", "n/a", "na", "not applicable", "not available", "not provided", "missing", "unknown", "undefined", "-"];
+      if (missingTokens.includes(normalized)) return true;
+      if (/^(null|none|n\/a|na|not applicable|not available|not provided|missing|unknown|undefined|-|—)$/i.test(normalized)) return true;
+      if (normalized.includes("not provided") || normalized.includes("not found") || normalized.includes("missing")) return true;
+      return false;
+    }
+
+    function accountForVendor(vendorName) {
+      const lower = String(vendorName || "").toLowerCase();
+      for (const rule of accountMap.keywords) {
+        if (rule.match.some(token => lower.includes(token))) return rule.account;
+      }
+      return accountMap.default;
+    }
+
+    function journalFor(data) {
+      if (!data) return null;
+      const currency = data.currency || "EUR";
+      const expenseAccount = accountForVendor(data.vendor_name);
+      const subtotal = Number(data.subtotal || 0);
+      const vat = Number(data.vat_amount || 0);
+      const total = Number(data.total_amount || 0);
+      const rows = [
+        {account: expenseAccount, debit: subtotal, credit: null},
+        ...(vat > 0 ? [{account: accountMap.vatReceivable, debit: vat, credit: null}] : []),
+        {account: accountMap.accountsPayable, debit: null, credit: total}
+      ];
+      const debit = rows.reduce((sum, row) => sum + Number(row.debit || 0), 0);
+      const credit = rows.reduce((sum, row) => sum + Number(row.credit || 0), 0);
+      return {currency, rows, debit, credit, balanced: Math.abs(debit - credit) < 0.01};
+    }
+
+    function flagSeverity(flags) {
+      if (!flags || !flags.length) return null;
+      return flags.some(flag => flag.severity === "error") ? "error" : "warning";
+    }
+
+    function statusBadge(status, flags = []) {
+      const base = "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold";
+      const severity = flagSeverity(flags);
+      if (severity === "error") return `<span class="${base} bg-red-100 text-red-700"><i data-lucide="octagon-alert" class="h-3 w-3"></i> Blocked</span>`;
+      if (severity === "warning") return `<span class="${base} bg-amber-100 text-amber-700"><i data-lucide="triangle-alert" class="h-3 w-3"></i> Review</span>`;
+      if (status === "processing") return `<span class="${base} bg-sky-100 text-sky-700"><i data-lucide="loader-2" class="h-3 w-3 spinner"></i> Processing</span>`;
+      if (status === "done") return `<span class="${base} bg-green-100 text-green-700">Done</span>`;
+      if (status === "error") return `<span class="${base} bg-red-100 text-red-700"><i data-lucide="refresh-cw" class="h-3 w-3"></i> Error</span>`;
+      return `<span class="${base} bg-slate-100 text-slate-600">Pending</span>`;
+    }
+
+    function leftRowClass(selected, flags) {
+      const severity = flagSeverity(flags);
+      if (severity === "error") {
+        return selected
+          ? "border-red-300 bg-red-50 border-l-[3px] border-l-red-500"
+          : "border-red-200 bg-red-50 border-l-[3px] border-l-red-500 hover:bg-red-100";
+      }
+      if (severity === "warning") {
+        return selected
+          ? "border-amber-300 bg-amber-50 border-l-[3px] border-l-amber-500"
+          : "border-amber-200 bg-amber-50 border-l-[3px] border-l-amber-500 hover:bg-amber-100";
+      }
+      return selected
+        ? "border-sky-200 bg-sky-50 border-l-[3px] border-l-sky-500"
+        : "border-slate-200 bg-white hover:bg-slate-50";
+    }
+
+    function flagSummary(flags) {
+      if (!flags || !flags.length) return "";
+      const first = flags[0];
+      const extra = flags.length > 1 ? ` +${flags.length - 1}` : "";
+      return `<div class="mt-1 truncate text-[11px] font-semibold ${first.severity === "error" ? "text-red-700" : "text-amber-700"}">${escapeHtml(first.title)}${extra}</div>`;
+    }
+
+    function renderAll() {
+      renderLeft();
+      renderViewerChrome();
+      renderRightPanel();
+      renderSummary();
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function renderLeft() {
+      els.demoBanner.classList.toggle("hidden", !app.demoMode);
+      els.fileCount.textContent = String(app.invoices.length);
+      els.fileList.innerHTML = app.invoices.length
+        ? app.invoices.map(inv => {
+          const selected = inv.id === app.selectedId;
+          const flags = inv.data ? validateInvoiceData(inv.data) : [];
+          return `
+            <button data-file-id="${escapeHtml(inv.id)}" class="file-row w-full text-left rounded-lg border ${leftRowClass(selected, flags)} p-3">
+              <div class="flex items-start gap-2">
+                <i data-lucide="${flags.length ? (flagSeverity(flags) === "error" ? "octagon-alert" : "triangle-alert") : "file-text"}" class="mt-0.5 h-4 w-4 shrink-0 ${flags.length ? (flagSeverity(flags) === "error" ? "text-red-500" : "text-amber-500") : "text-slate-500"}"></i>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="truncate text-xs font-bold text-slate-900" title="${escapeHtml(inv.name)}">${escapeHtml(inv.name)}</div>
+                    ${statusBadge(inv.status, flags)}
+                  </div>
+                  <div class="mt-1 text-[11px] text-slate-500">${inv.pages ? `${inv.pages} pages` : inv.demo ? "demo invoice" : "PDF"} | ${formatBytes(inv.size)}</div>
+                  ${flagSummary(flags)}
+                </div>
+              </div>
+            </button>`;
+        }).join("")
+        : `<div class="rounded-lg border border-dashed border-slate-200 p-4 text-center text-xs text-slate-500">No invoices uploaded yet.</div>`;
+
+      const uploaded = app.invoices.length;
+      const done = app.invoices.filter(inv => inv.status === "done").length;
+      const flagged = app.invoices.filter(inv => inv.data && validateInvoiceData(inv.data).length > 0).length;
+      const pending = app.invoices.filter(inv => inv.status === "pending").length;
+      els.statsBar.textContent = `${uploaded} uploaded | ${done} done | ${flagged} flagged | ${pending} pending`;
+      els.processAllBtn.disabled = !uploaded || app.processing || !hasApiKey();
+      if (!app.processing) {
+        els.processAllBtn.textContent = !hasApiKey() ? ".env Key Missing" : "Process All";
+        els.progressWrap.classList.add("hidden");
+      }
+    }
+
+    function renderViewerChrome() {
+      const inv = selectedInvoice();
+      if (!inv) {
+        els.viewerChrome.innerHTML = `
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-bold text-slate-900">Invoice Visualiser</div>
+            <div class="text-xs text-slate-500">Select an invoice from the left panel</div>
+          </div>`;
+        renderViewer();
+        return;
+      }
+
+      els.viewerChrome.innerHTML = `
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-sm font-bold text-slate-900" title="${escapeHtml(inv.name)}">${escapeHtml(inv.name)}</div>
+          <div class="mt-0.5">${statusBadge(inv.status, inv.data ? validateInvoiceData(inv.data) : [])}</div>
+        </div>
+        <div class="flex items-center rounded-lg border border-slate-200 overflow-hidden">
+          <button id="zoomOutBtn" class="h-9 w-9 grid place-items-center text-slate-700 hover:bg-slate-50" title="Zoom out"><i data-lucide="minus" class="h-4 w-4"></i></button>
+          <div class="h-9 min-w-[64px] grid place-items-center border-x border-slate-200 px-2 text-xs font-bold tabular text-slate-700">${Math.round(app.zoom * 100)}%</div>
+          <button id="zoomInBtn" class="h-9 w-9 grid place-items-center text-slate-700 hover:bg-slate-50" title="Zoom in"><i data-lucide="plus" class="h-4 w-4"></i></button>
+        </div>
+        <button id="processOneBtn" class="rounded-lg bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-600 disabled:bg-slate-300" ${app.processing || inv.demo || !hasApiKey() ? "disabled" : ""}>Extract this invoice</button>
+      `;
+      renderViewer();
+    }
+
+    function renderViewer() {
+      const inv = selectedInvoice();
+      if (!inv) {
+        els.viewer.innerHTML = `
+          <div class="h-full grid place-items-center p-8">
+            <div class="text-center">
+              <i data-lucide="file-search" class="mx-auto h-16 w-16 text-slate-400"></i>
+              <div class="mt-4 text-lg font-extrabold text-slate-800">Select an invoice to preview</div>
+              <div class="mt-2 text-sm text-slate-500">Click any file in the left panel</div>
+            </div>
+          </div>`;
+        return;
+      }
+
+      if (inv.demo) {
+        els.viewer.innerHTML = `
+          <div class="h-full grid place-items-center p-8">
+            <div class="w-[76%] max-w-3xl aspect-[0.72] rounded-xl border border-slate-300 bg-slate-100 shadow-inner grid place-items-center">
+              <div class="text-center">
+                <i data-lucide="file-text" class="mx-auto h-14 w-14 text-slate-400"></i>
+                <div class="mt-4 text-sm font-bold text-slate-700">PDF preview not available in demo mode</div>
+              </div>
+            </div>
+          </div>`;
+        return;
+      }
+
+      if (inv.rendering) {
+        els.viewer.innerHTML = `
+          <div class="p-8 space-y-8">
+            <div class="ml-auto text-xs font-bold text-slate-500">Page 1</div>
+            <div class="mx-auto h-[780px] w-[560px] rounded-lg shimmer shadow-lg"></div>
+          </div>`;
+      } else if (inv.renderError) {
+        els.viewer.innerHTML = `<div class="p-8 text-sm font-semibold text-red-700">${escapeHtml(inv.renderError)}</div>`;
+      } else {
+        renderPdfPages(inv);
+      }
+    }
+
+    async function renderPdfPages(inv) {
+      const renderToken = uid();
+      inv.renderToken = renderToken;
+      inv.rendering = true;
+      els.viewer.innerHTML = `
+        <div class="p-8 space-y-8">
+          <div class="mx-auto h-[780px] w-[560px] rounded-lg shimmer shadow-lg"></div>
+        </div>`;
+
+      try {
+        const pdf = await pdfjsLib.getDocument({data: inv.arrayBuffer.slice(0)}).promise;
+        inv.pages = pdf.numPages;
+        if (inv.renderToken !== renderToken) return;
+        els.viewer.innerHTML = `<div id="pdfPages" class="p-8 space-y-8"></div>`;
+        const pageWrap = document.getElementById("pdfPages");
+        const availableWidth = Math.max(400, els.viewer.clientWidth - 72);
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const baseViewport = page.getViewport({scale: 1});
+          const fitScale = Math.min(1.7, availableWidth / baseViewport.width);
+          const scale = fitScale * app.zoom;
+          const viewport = page.getViewport({scale});
+          const ratio = window.devicePixelRatio || 1;
+          const shell = document.createElement("div");
+          shell.className = "relative mx-auto";
+          shell.style.width = `${viewport.width}px`;
+          const label = document.createElement("div");
+          label.className = "absolute right-0 -top-6 text-xs font-bold text-slate-500";
+          label.textContent = `Page ${i} of ${pdf.numPages}`;
+          const canvas = document.createElement("canvas");
+          canvas.className = "pdf-canvas rounded-sm";
+          canvas.width = Math.floor(viewport.width * ratio);
+          canvas.height = Math.floor(viewport.height * ratio);
+          canvas.style.width = `${viewport.width}px`;
+          canvas.style.height = `${viewport.height}px`;
+          const ctx = canvas.getContext("2d");
+          ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+          shell.appendChild(label);
+          shell.appendChild(canvas);
+          pageWrap.appendChild(shell);
+          await page.render({canvasContext: ctx, viewport}).promise;
+        }
+        inv.rendering = false;
+        renderLeft();
+      } catch (error) {
+        inv.rendering = false;
+        inv.renderError = `Could not render PDF: ${error.message}`;
+        els.viewer.innerHTML = `<div class="p-8 text-sm font-semibold text-red-700">${escapeHtml(inv.renderError)}</div>`;
+      } finally {
+        if (window.lucide) lucide.createIcons();
+      }
+    }
+
+    function renderRightPanel() {
+      const inv = selectedInvoice();
+      if (!inv || !inv.data) {
+        els.rightPanel.innerHTML = `
+          <div class="h-full grid place-items-center p-8">
+            <div class="text-center">
+              <i data-lucide="table-properties" class="mx-auto h-12 w-12 text-slate-400"></i>
+              <div class="mt-4 text-sm font-bold text-slate-800">No extracted data yet</div>
+              <div class="mt-2 text-xs text-slate-500">Process or select a completed invoice.</div>
+            </div>
+          </div>`;
+        return;
+      }
+
+      const data = inv.data;
+      const flags = validateInvoiceData(data);
+      data.flags = flags;
+      const je = journalFor(data);
+      els.rightPanel.innerHTML = `
+        <section class="min-h-[55%] border-b border-slate-200">
+          <div class="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+            <div class="panel-title">Extracted Fields</div>
+            <span class="rounded-full bg-sky-50 px-2 py-1 text-[11px] font-bold text-sky-700">GPT-4o Vision</span>
+          </div>
+          <div class="p-4 space-y-4">
+            ${fieldGrid(inv, data)}
+            ${lineItemsHtml(data)}
+            ${flagsHtml(flags)}
+          </div>
+        </section>
+
+        <section class="min-h-[45%]">
+          <div class="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+            <div class="panel-title">Journal Entry</div>
+            <span class="rounded-full px-2 py-1 text-[11px] font-bold ${je.balanced ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}">${je.balanced ? "Balanced" : "Imbalanced"}</span>
+          </div>
+          <div class="p-4">
+            ${journalHtml(data, je)}
+            ${confirmHtml(inv, flags)}
+          </div>
+        </section>`;
+    }
+
+    function fieldGrid(inv, data) {
+      const edited = inv.editedFields || new Set();
+      const flags = validateInvoiceData(data);
+      const field = (name, label, type = "text", full = false, bold = false) => {
+        const value = data[name];
+        const status = fieldStatusFor(name, value, data, flags);
+        const editedClass = edited.has(name) ? "field-edited" : "";
+        const borderClass = status.level === "error"
+          ? "border-red-400"
+          : status.level === "warning"
+            ? "border-amber-400"
+            : "border-slate-300";
+        return `
+          <label class="${full ? "col-span-2" : ""} block">
+            <span class="panel-title ${editedClass}">${label} ${fieldIndicator(status)}</span>
+            <input data-field="${name}" type="${type}" value="${escapeHtml(value ?? "")}" placeholder="Not found"
+              class="mt-1 w-full rounded-md border ${borderClass} bg-white px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${bold ? "text-lg font-extrabold amount" : "amount"}" />
+          </label>`;
+      };
+      return `
+        <div class="grid grid-cols-2 gap-3">
+          ${field("vendor_name", "Vendor Name", "text", true)}
+          ${field("bill_to_company", "Bill To Company", "text", true)}
+          ${field("vendor_vat", "Vendor VAT Number")}
+          ${field("invoice_number", "Invoice Number")}
+          ${field("invoice_date", "Invoice Date", "date")}
+          ${field("due_date", "Due Date", "date")}
+          ${field("currency", "Currency")}
+          ${field("subtotal", "Subtotal", "number")}
+          ${field("vat_percentage", "VAT %", "number")}
+          ${field("vat_amount", "VAT Amount", "number")}
+          ${field("total_amount", "Total Amount", "number", true, true)}
+        </div>`;
+    }
+
+    function fieldStatusFor(name, value, data, flags) {
+      const errorFlagMap = {
+        vendor_vat: ["missing_vat"],
+        invoice_number: ["same_invoice_number"],
+        invoice_date: ["old_submission", "old_invoice"],
+        due_date: ["overdue_due_date"],
+        bill_to_company: ["wrong_entity"],
+        subtotal: ["total_mismatch", "line_mismatch", "wrong_vat_rate"],
+        vat_percentage: ["wrong_vat_rate", "zero_vat"],
+        vat_amount: ["total_mismatch", "wrong_vat_rate"],
+        total_amount: ["total_mismatch", "duplicate_invoice"],
+        vendor_name: ["duplicate_invoice"]
+      };
+      const relevantFlags = flags.filter(flag => (errorFlagMap[name] || []).includes(flag.type));
+      if (relevantFlags.some(flag => flag.severity === "error")) return {level: "error", label: "error"};
+      if (relevantFlags.length) return {level: "warning", label: "warn"};
+
+      const required = ["vendor_name", "invoice_number", "invoice_date", "currency", "total_amount"];
+      if (required.includes(name) && (value === null || value === undefined || value === "")) return {level: "error", label: "error"};
+      if (value !== null && value !== undefined && value !== "") return {level: "ok", label: "ok"};
+      return {level: "warning", label: "warn"};
+    }
+
+    function fieldIndicator(status) {
+      const cls = status.level === "error"
+        ? "text-red-600"
+        : status.level === "warning"
+          ? "text-amber-600"
+          : "text-green-600";
+      return `<span class="${cls}">${status.label}</span>`;
+    }
+
+    function lineItemsHtml(data) {
+      const rows = data.line_items || [];
+      return `
+        <details open class="rounded-lg border border-slate-200">
+          <summary class="cursor-pointer list-none px-3 py-2 text-xs font-bold text-slate-700 flex items-center justify-between">
+            <span>Line Items</span>
+            <span class="text-slate-400">${rows.length}</span>
+          </summary>
+          <div class="max-h-44 overflow-y-auto scrollbar-thin border-t border-slate-200">
+            <table class="w-full text-xs">
+              <thead class="sticky top-0 bg-slate-50 text-slate-500">
+                <tr>
+                  <th class="px-3 py-2 text-left font-bold">Description</th>
+                  <th class="px-2 py-2 text-right font-bold">Qty</th>
+                  <th class="px-2 py-2 text-right font-bold">Unit</th>
+                  <th class="px-3 py-2 text-right font-bold">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.length ? rows.map(item => `
+                  <tr class="border-t border-slate-100 hover:bg-slate-50">
+                    <td class="px-3 py-2 text-slate-700">${escapeHtml(item.description)}</td>
+                    <td class="px-2 py-2 text-right tabular">${escapeHtml(item.quantity)}</td>
+                    <td class="px-2 py-2 text-right tabular">${Number(item.unit_price || 0).toFixed(2)}</td>
+                    <td class="px-3 py-2 text-right tabular font-semibold">${Number(item.amount || 0).toFixed(2)}</td>
+                  </tr>`).join("") : `<tr><td colspan="4" class="px-3 py-4 text-center text-slate-500">No line items found.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </details>`;
+    }
+
+    function flagsHtml(flags) {
+      if (!flags.length) return "";
+      return `
+        <div class="space-y-2">
+          ${flags.map(flag => `
+            <div class="rounded-lg border ${flag.severity === "error" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"} p-3">
+              <div class="flex items-start gap-2">
+                <i data-lucide="${flag.severity === "error" ? "octagon-alert" : "triangle-alert"}" class="mt-0.5 h-4 w-4 ${flag.severity === "error" ? "text-red-500" : "text-amber-500"}"></i>
+                <div>
+                  <div class="text-xs font-extrabold ${flag.severity === "error" ? "text-red-800" : "text-amber-800"}">${escapeHtml(flag.title)}</div>
+                  <div class="mt-1 text-xs leading-5 ${flag.severity === "error" ? "text-red-700" : "text-amber-700"}">${escapeHtml(flag.msg)}</div>
+                </div>
+              </div>
+            </div>`).join("")}
+        </div>`;
+    }
+
+    function journalHtml(data, je) {
+      return `
+        <div class="rounded-lg border border-slate-200 overflow-hidden">
+          <div class="bg-slate-50 px-3 py-2">
+            <div class="truncate text-xs font-extrabold text-slate-900">JE Preview - ${escapeHtml(data.invoice_number || "Invoice")}</div>
+            <div class="mt-0.5 truncate text-[11px] text-slate-500">${escapeHtml(data.vendor_name || "")} | ${escapeHtml(data.invoice_date || "")}</div>
+          </div>
+          <table class="w-full text-xs">
+            <thead class="bg-white text-slate-500">
+              <tr>
+                <th class="border-t border-slate-200 px-3 py-2 text-left font-bold">Account</th>
+                <th class="border-t border-slate-200 px-2 py-2 text-right font-bold">Debit</th>
+                <th class="border-t border-slate-200 px-3 py-2 text-right font-bold">Credit</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${je.rows.map(row => `
+                <tr class="border-t border-slate-100 hover:bg-slate-50">
+                  <td class="px-3 py-2 text-slate-700">${escapeHtml(row.account)}</td>
+                  <td class="px-2 py-2 text-right tabular">${row.debit !== null ? money(row.debit, je.currency) : ""}</td>
+                  <td class="px-3 py-2 text-right tabular">${row.credit !== null ? money(row.credit, je.currency) : ""}</td>
+                </tr>`).join("")}
+              <tr class="border-t border-slate-200 bg-slate-50 font-extrabold">
+                <td class="px-3 py-2">TOTAL</td>
+                <td class="px-2 py-2 text-right tabular">${money(je.debit, je.currency)}</td>
+                <td class="px-3 py-2 text-right tabular">${money(je.credit, je.currency)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="mt-2 text-[11px] leading-5 text-slate-500">Net amount: ${money(data.subtotal, je.currency)} | VAT: ${money(data.vat_amount, je.currency)} (${Number(data.vat_percentage || 0)}%${Number(data.vat_percentage || 0) === 0 && vendorIsKnownZeroVAT(data.vendor_name) ? " - valid for EU service fee" : ""})</p>`;
+    }
+
+    function confirmHtml(inv, flags) {
+      if (inv.confirmed) {
+        return `
+          <div class="mt-4 grid grid-cols-2 gap-2">
+            <button class="rounded-lg bg-green-500 px-3 py-2.5 text-sm font-bold text-white" disabled>Added</button>
+            <button id="removeInvoiceBtn" class="rounded-lg border border-red-200 px-3 py-2.5 text-sm font-bold text-red-700 hover:bg-red-50">
+              Remove
+            </button>
+          </div>`;
+      }
+      const hasErrors = flags.some(flag => flag.severity === "error");
+      return `
+        <button id="confirmInvoiceBtn" class="mt-4 w-full rounded-lg ${hasErrors ? "bg-amber-500 hover:bg-amber-600" : "bg-green-500 hover:bg-green-600"} px-4 py-2.5 text-sm font-bold text-white">
+          ${hasErrors ? "Force Add With Warning" : "Confirm & Add to Export"}
+        </button>`;
+    }
+
+    function renderSummary() {
+      const confirmed = app.invoices.filter(inv => inv.confirmed && inv.data);
+      const flagged = app.invoices.filter(inv => !inv.confirmed && inv.data && validateInvoiceData(inv.data).length > 0);
+      const addable = app.invoices.filter(inv => inv.data && !inv.confirmed && !validateInvoiceData(inv.data).some(flag => flag.severity === "error"));
+      const totals = confirmed.reduce((acc, inv) => {
+        acc.amount += Number(inv.data.total_amount || 0);
+        acc.vat += Number(inv.data.vat_amount || 0);
+        acc.net += Number(inv.data.subtotal || 0);
+        return acc;
+      }, {amount: 0, vat: 0, net: 0});
+      els.summaryFooter.innerHTML = `
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-slate-500">
+          <div>Total invoices confirmed</div><div class="text-right font-bold tabular text-slate-900">${confirmed.length}</div>
+          <div>Total amount</div><div class="text-right font-bold tabular text-slate-900">${money(totals.amount)}</div>
+          <div>Total VAT</div><div class="text-right font-bold tabular text-slate-900">${money(totals.vat)}</div>
+          <div>Total net</div><div class="text-right font-bold tabular text-slate-900">${money(totals.net)}</div>
+          <div>Flagged not exported</div><div class="text-right font-bold tabular text-slate-900">${flagged.length}</div>
+        </div>
+        <button id="addAllBtn" class="mt-3 w-full rounded-lg bg-green-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-green-600 disabled:bg-slate-300" ${addable.length ? "" : "disabled"}>
+          Add All Clean Entries (${addable.length})
+        </button>
+        <button id="exportBtn" class="mt-2 w-full rounded-lg bg-sky-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-600 disabled:bg-slate-300" ${confirmed.length ? "" : "disabled"}>
+          Export to NetSuite CSV
+        </button>
+        <button id="removeAllConfirmedBtn" class="mt-2 w-full rounded-lg border border-red-200 px-4 py-2.5 text-sm font-bold text-red-700 hover:bg-red-50 disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-white" ${confirmed.length ? "" : "disabled"}>
+          Remove All Confirmed (${confirmed.length})
+        </button>`;
+    }
+
+    function hasApiKey() {
+      return Boolean(app.serverHasApiKey);
+    }
+
+    async function hydrateServerConfig() {
+      if (location.protocol === "file:") return;
+      try {
+        const response = await fetch("/api/openai/health");
+        if (!response.ok) return;
+        const health = await response.json();
+        app.serverHasApiKey = Boolean(health.has_api_key);
+      } catch {
+        app.serverHasApiKey = false;
+      }
+    }
+
+    async function refreshServerKeyStatus(showStatus = false) {
+      await hydrateServerConfig();
+      renderAll();
+      if (showStatus) {
+        showToast(app.serverHasApiKey ? ".env OpenAI key loaded by server." : "Server cannot see OPENAI_API_KEY in .env. Save .env and restart the server.", !app.serverHasApiKey);
+      }
+    }
+
+    function auditContext(invOrData = {}) {
+      const data = invOrData.data || invOrData;
+      return {
+        invoice_number: data?.invoice_number || null,
+        vendor_name: data?.vendor_name || null
+      };
+    }
+
+    function logAudit(action, detail = "", actor = "system", invOrData = {}) {
+      if (location.protocol === "file:") return;
+      const context = auditContext(invOrData);
+      fetch("/api/log/audit", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          invoice_number: context.invoice_number,
+          vendor_name: context.vendor_name,
+          action,
+          actor,
+          detail: String(detail ?? "")
+        })
+      }).catch(() => {});
+    }
+
+    function invoiceStatusForLog(inv, flags = null) {
+      if (!inv) return null;
+      if (inv.confirmed) return "confirmed";
+      if (inv.status === "error") return "error";
+      const activeFlags = flags || (inv.data ? validateInvoiceData(inv.data) : []);
+      if (activeFlags.some(flag => flag.severity === "error")) return "blocked";
+      if (activeFlags.length) return "review";
+      return inv.status || "pending";
+    }
+
+    function logInvoiceSnapshot(inv, flags = null) {
+      if (location.protocol === "file:" || !inv?.data) return;
+      const data = inv.data;
+      const activeFlags = flags || validateInvoiceData(data);
+      fetch("/api/log/invoice", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          invoice_number: data.invoice_number,
+          vendor_name: data.vendor_name,
+          bill_to_company: data.bill_to_company,
+          invoice_date: data.invoice_date,
+          due_date: data.due_date,
+          currency: data.currency,
+          subtotal: data.subtotal,
+          vat_percentage: data.vat_percentage,
+          vat_amount: data.vat_amount,
+          total_amount: data.total_amount,
+          flags: activeFlags,
+          status: invoiceStatusForLog(inv, activeFlags),
+          exported: false
+        })
+      })
+        .then(response => response.ok ? response.json() : null)
+        .then(payload => {
+          if (payload?.id) {
+            inv.logIds = inv.logIds || [];
+            inv.logIds.push(payload.id);
+          }
+        })
+        .catch(() => {});
+    }
+
+    function logValidationDecision(inv, flags) {
+      if (!inv?.data) return;
+      if (flags.length) {
+        flags.forEach(flag => {
+          logAudit("ANOMALY_DETECTED", `${flag.title} (${flag.severity}) - ${flag.msg}`, "system", inv);
+          if (flag.type === "same_invoice_number" || flag.type === "duplicate_invoice") {
+            logAudit("DUPLICATE_DETECTED", `${flag.title} - ${flag.msg}`, "system", inv);
+          }
+        });
+      } else {
+        logAudit("VALIDATION_PASSED", "No anomalies found.", "system", inv);
+      }
+    }
+
+    function logJournalDecision(inv) {
+      if (!inv?.data) return;
+      const je = journalFor(inv.data);
+      const debitAccount = je?.rows?.find(row => row.debit !== null)?.account || "";
+      logAudit("JOURNAL_ENTRY_GENERATED", `${debitAccount} | total ${money(inv.data.total_amount, inv.data.currency || "EUR")}`, "system", inv);
+    }
+
+    function markInvoiceLogsExported(invoices) {
+      const ids = invoices.flatMap(inv => inv.logIds || []);
+      if (!ids.length || location.protocol === "file:") return;
+      fetch("/api/log/invoices/mark-exported", {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ids})
+      }).catch(() => {});
+    }
+
+    async function addFiles(fileList) {
+      const files = Array.from(fileList).filter(file => file.type === "application/pdf" || /\.pdf$/i.test(file.name));
+      const slots = Math.max(0, 20 - app.invoices.length);
+      const selected = files.slice(0, slots);
+      for (const file of selected) {
+        const arrayBuffer = await file.arrayBuffer();
+        app.invoices.push({
+          id: uid(),
+          file,
+          arrayBuffer,
+          name: file.name,
+          size: file.size,
+          status: "pending",
+          data: null,
+          pages: null,
+          confirmed: false,
+          logIds: [],
+          editedFields: new Set()
+        });
+        logAudit("INVOICE_UPLOADED", file.name, "system", {invoice_number: file.name});
+      }
+      app.demoMode = false;
+      if (!app.selectedId && app.invoices[0]) app.selectedId = app.invoices[0].id;
+      renderAll();
+    }
+
+    function loadDemoInvoices() {
+      app.demoMode = true;
+      app.invoices = DEMO_INVOICES.map(data => ({
+        id: uid(),
+        file: null,
+        arrayBuffer: null,
+        name: data.filename,
+        size: 0,
+        status: "done",
+        demo: true,
+        data: JSON.parse(JSON.stringify(data)),
+        pages: null,
+        confirmed: false,
+        logIds: [],
+        editedFields: new Set()
+      }));
+      app.invoices.forEach(inv => {
+        const flags = validateInvoiceData(inv.data);
+        inv.data.flags = flags;
+        logInvoiceSnapshot(inv, flags);
+        logValidationDecision(inv, flags);
+        logJournalDecision(inv);
+      });
+      app.selectedId = app.invoices[0]?.id || null;
+      renderAll();
+      showToast("Demo invoices loaded.");
+    }
+
+    async function renderFirstPageForVision(inv) {
+      const pdf = await pdfjsLib.getDocument({data: inv.arrayBuffer.slice(0)}).promise;
+      const page = await pdf.getPage(1);
+      inv.pages = pdf.numPages;
+      const viewport = page.getViewport({scale: 2});
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({canvasContext: canvas.getContext("2d"), viewport}).promise;
+      return canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
+    }
+
+    async function callOpenAI(base64) {
+      const prompt = `You are an AP automation agent. Extract invoice data from this image.
+Return ONLY a valid JSON object with exactly these fields. No explanation, no markdown.
+
+{
+  "vendor_name": "string",
+  "vendor_vat": "string or null",
+  "invoice_number": "string",
+  "invoice_date": "YYYY-MM-DD or null",
+  "due_date": "YYYY-MM-DD or null",
+  "currency": "EUR",
+  "line_items": [
+    {"description": "string", "quantity": number, "unit_price": number, "amount": number}
+  ],
+  "subtotal": number,
+  "vat_percentage": number,
+  "vat_amount": number,
+  "total_amount": number,
+  "payment_reference": "string or null",
+  "bill_to_company": "string or null"
+}
+
+Rules:
+- All amounts as plain numbers, no symbols
+- Dates as YYYY-MM-DD
+- If field not found: null
+- vendor_vat means the supplier/seller VAT number only
+- Do not copy the customer, bill-to, or buyer VAT number into vendor_vat
+- If the supplier VAT says NOT PROVIDED, N/A, missing, or similar: return vendor_vat as null
+- bill_to_company must be the exact legal company name from the invoice billing block
+- If the invoice is billed to a different group entity, return the exact visible legal name
+- vat_percentage as integer (21, 9, 0)
+- Do not invent data - only extract what is visible`;
+
+      const endpoint = "/api/openai/chat/completions";
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: [
+              {type: "text", text: prompt},
+              {type: "image_url", image_url: {url: `data:image/jpeg;base64,${base64}`, detail: "high"}}
+            ]
+          }]
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw openAIRequestError(response.status, text);
+      }
+
+      const payload = await response.json();
+      const responseText = payload.choices?.[0]?.message?.content || "";
+      const clean = responseText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
+      return JSON.parse(clean);
+    }
+
+    function openAIRequestError(status, rawText) {
+      let detail = "";
+      try {
+        const parsed = JSON.parse(rawText || "{}");
+        detail = parsed.error?.message || parsed.error || "";
+        if (detail && typeof detail !== "string") detail = JSON.stringify(detail);
+      } catch {
+        detail = rawText || "";
+      }
+
+      const error = new Error(readableOpenAIError(status, detail));
+      error.status = status;
+      error.code = status === 401 ? "auth" : "openai";
+      return error;
+    }
+
+    function sanitizeOpenAIErrorDetail(detail) {
+      return String(detail || "")
+        .replace(/sk-[A-Za-z0-9_-]+/g, "sk-***")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 220);
+    }
+
+    function readableOpenAIError(status, detail) {
+      const sanitized = sanitizeOpenAIErrorDetail(detail);
+      if (status === 401) return "OpenAI API key rejected. Check OPENAI_API_KEY in .env and restart the server.";
+      if (status === 403) return "OpenAI API access denied. Check project permissions and model access.";
+      if (status === 429) return "OpenAI rate limit hit. Wait a moment and retry.";
+      if (status >= 500) return sanitized ? `OpenAI service error ${status}: ${sanitized}` : "OpenAI service error. Retry in a moment.";
+      return sanitized ? `OpenAI API error ${status}: ${sanitized}` : `OpenAI API error ${status}.`;
+    }
+
+    async function processInvoice(inv) {
+      if (!hasApiKey()) {
+        showToast("Server cannot see OPENAI_API_KEY in .env. Save .env and restart the server.", true);
+        return false;
+      }
+      if (inv.demo) return;
+      inv.status = "processing";
+      inv.error = null;
+      logAudit("EXTRACTION_STARTED", inv.name, "system", inv);
+      renderAll();
+      try {
+        const base64 = await renderFirstPageForVision(inv);
+        const data = await callOpenAI(base64);
+        data.currency = data.currency || "EUR";
+        data.line_items = Array.isArray(data.line_items) ? data.line_items : [];
+        data.flags = validateInvoiceData(data);
+        inv.data = data;
+        inv.status = "done";
+        inv.confirmed = false;
+        logAudit("EXTRACTION_COMPLETED", `${data.vendor_name || "Unknown vendor"} | ${data.invoice_number || "No invoice number"} | ${money(data.total_amount, data.currency || "EUR")}`, "system", inv);
+        logValidationDecision(inv, data.flags);
+        logJournalDecision(inv);
+        logInvoiceSnapshot(inv, data.flags);
+        renderAll();
+        return true;
+      } catch (error) {
+        if (error.code === "auth") {
+          app.serverHasApiKey = false;
+          inv.status = "pending";
+          inv.error = null;
+        } else {
+          inv.status = "error";
+          inv.error = error.message;
+        }
+        logAudit("EXTRACTION_FAILED", error.message, "system", inv);
+        showToast(error.message, true);
+        renderAll();
+        return false;
+      }
+    }
+
+    async function processAll() {
+      if (!hasApiKey()) {
+        showToast("Server cannot see OPENAI_API_KEY in .env. Save .env and restart the server.", true);
+        return;
+      }
+      const queue = app.invoices.filter(inv => !inv.demo && (inv.status === "pending" || inv.status === "error"));
+      if (!queue.length) return;
+      app.processing = true;
+      els.progressWrap.classList.remove("hidden");
+
+      for (let i = 0; i < queue.length; i++) {
+        els.processAllBtn.textContent = `Processing ${i + 1}/${queue.length}...`;
+        els.progressBar.style.width = `${Math.round((i / queue.length) * 100)}%`;
+        const ok = await processInvoice(queue[i]);
+        els.progressBar.style.width = `${Math.round(((i + 1) / queue.length) * 100)}%`;
+        if (!ok) break;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      app.processing = false;
+      renderAll();
+    }
+
+    function updateField(field, value) {
+      const inv = selectedInvoice();
+      if (!inv || !inv.data) return;
+      const numeric = ["subtotal", "vat_percentage", "vat_amount", "total_amount"];
+      const oldValue = inv.data[field];
+      inv.data[field] = numeric.includes(field) ? Number(value || 0) : (value || null);
+      inv.editedFields.add(field);
+      inv.data.flags = validateInvoiceData(inv.data);
+      inv.confirmed = false;
+      logAudit("FIELD_EDITED", `${field}: ${oldValue ?? ""} -> ${inv.data[field] ?? ""}`, "user", inv);
+      logValidationDecision(inv, inv.data.flags);
+      logJournalDecision(inv);
+      logInvoiceSnapshot(inv, inv.data.flags);
+      renderAll();
+    }
+
+    function confirmSelectedInvoice() {
+      const inv = selectedInvoice();
+      if (!inv || !inv.data) return;
+      const flags = validateInvoiceData(inv.data);
+      const hasErrors = flags.some(flag => flag.severity === "error");
+      if (hasErrors && !window.confirm("This invoice has blocking flags. Force add it to the export queue?")) return;
+      inv.confirmed = true;
+      if (hasErrors) {
+        logAudit("FORCE_CONFIRMED", flags.map(flag => flag.title).join(", "), "user", inv);
+      } else {
+        logAudit("INVOICE_CONFIRMED", "Invoice confirmed into export queue.", "user", inv);
+      }
+      logInvoiceSnapshot(inv, flags);
+      showToast("Invoice added to export queue.");
+      renderAll();
+    }
+
+    function removeSelectedInvoiceFromExport() {
+      const inv = selectedInvoice();
+      if (!inv || !inv.confirmed) return;
+      inv.confirmed = false;
+      logAudit("INVOICE_REMOVED", "Invoice removed from export queue.", "user", inv);
+      logInvoiceSnapshot(inv);
+      showToast("Invoice removed from export queue.");
+      renderAll();
+    }
+
+    function confirmAllCleanInvoices() {
+      const addable = app.invoices.filter(inv => inv.data && !inv.confirmed && !validateInvoiceData(inv.data).some(flag => flag.severity === "error"));
+      if (!addable.length) {
+        showToast("No clean invoice entries to add.", true);
+        return;
+      }
+      addable.forEach(inv => {
+        inv.confirmed = true;
+        logInvoiceSnapshot(inv);
+      });
+      logAudit("BULK_ADD_CLEAN", `count=${addable.length}`, "user");
+      showToast(`Added ${addable.length} clean invoice entr${addable.length === 1 ? "y" : "ies"} to export.`);
+      renderAll();
+    }
+
+    function removeAllConfirmedInvoices() {
+      const confirmed = app.invoices.filter(inv => inv.confirmed);
+      if (!confirmed.length) {
+        showToast("No confirmed invoices to remove.", true);
+        return;
+      }
+      confirmed.forEach(inv => {
+        inv.confirmed = false;
+        logInvoiceSnapshot(inv);
+      });
+      logAudit("BULK_REMOVE_ALL", `count=${confirmed.length}`, "user");
+      showToast(`Removed ${confirmed.length} confirmed invoice entr${confirmed.length === 1 ? "y" : "ies"}.`);
+      renderAll();
+    }
+
+    function exportRows() {
+      const confirmed = app.invoices.filter(inv => inv.confirmed && inv.data);
+      const rows = [];
+      confirmed.forEach((inv, index) => {
+        const data = inv.data;
+        const id = `JE-${String(index + 1).padStart(3, "0")}`;
+        const memo = `${data.invoice_number || inv.name} | ${data.vendor_name || ""}`;
+        const date = toCsvDate(data.invoice_date);
+        const currency = data.currency || "EUR";
+        rows.push({
+          "External ID": id,
+          "*Journal Date": date,
+          "*Subsidiary": EXPECTED_BILL_TO_COMPANY,
+          "Currency": currency,
+          "Memo": memo,
+          "*Account": accountForVendor(data.vendor_name),
+          "Debit": Number(data.subtotal || 0).toFixed(2),
+          "Credit": ""
+        });
+        if (Number(data.vat_amount || 0) > 0) {
+          rows.push({
+            "External ID": id,
+            "*Journal Date": date,
+            "*Subsidiary": EXPECTED_BILL_TO_COMPANY,
+            "Currency": currency,
+            "Memo": memo,
+            "*Account": accountMap.vatReceivable,
+            "Debit": Number(data.vat_amount || 0).toFixed(2),
+            "Credit": ""
+          });
+        }
+        rows.push({
+          "External ID": id,
+          "*Journal Date": date,
+          "*Subsidiary": EXPECTED_BILL_TO_COMPANY,
+          "Currency": currency,
+          "Memo": memo,
+          "*Account": accountMap.accountsPayable,
+          "Debit": "",
+          "Credit": Number(data.total_amount || 0).toFixed(2)
+        });
+      });
+      return rows;
+    }
+
+    function maybeExportCsv() {
+      const confirmed = app.invoices.filter(inv => inv.confirmed && inv.data);
+      if (!confirmed.length) {
+        showToast("No confirmed invoices to export.", true);
+        return;
+      }
+      const warned = confirmed.filter(inv => validateInvoiceData(inv.data).length > 0);
+      if (warned.length && !app.pendingExportAfterWarning) {
+        els.exportWarningText.textContent = `${warned.length} confirmed invoice${warned.length === 1 ? "" : "s"} have warnings. Export anyway?`;
+        els.exportWarningModal.classList.remove("hidden");
+        els.exportWarningModal.classList.add("flex");
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+      doExportCsv();
+    }
+
+    function doExportCsv() {
+      app.pendingExportAfterWarning = false;
+      els.exportWarningModal.classList.add("hidden");
+      els.exportWarningModal.classList.remove("flex");
+      const confirmed = app.invoices.filter(inv => inv.confirmed && inv.data);
+      const rows = exportRows();
+      const csv = Papa.unparse(rows);
+      const today = new Date();
+      const stamp = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+      const filename = `finflow_journal_entries_${stamp}.csv`;
+      const blob = new Blob([csv], {type: "text/csv;charset=utf-8;"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      logAudit("EXPORT_TRIGGERED", `${confirmed.length} invoices exported | ${filename}`, "user");
+      markInvoiceLogsExported(confirmed);
+      showToast(`Exported ${rows.length} journal entries - ready for NetSuite import`);
+    }
+
+    function openLogsOverlay() {
+      app.logsOpen = true;
+      els.logsOverlay.classList.remove("hidden");
+      els.logsOverlay.classList.add("block");
+      els.logsSearchInput.value = app.logsSearch;
+      renderLogsOverlay();
+      refreshLogs();
+      clearInterval(app.logsTimer);
+      app.logsTimer = setInterval(refreshLogs, 5000);
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeLogsOverlay() {
+      app.logsOpen = false;
+      clearInterval(app.logsTimer);
+      app.logsTimer = null;
+      els.logsOverlay.classList.add("hidden");
+      els.logsOverlay.classList.remove("block");
+    }
+
+    async function refreshLogs() {
+      if (!app.logsOpen || location.protocol === "file:") return;
+      try {
+        const [auditResponse, invoiceResponse] = await Promise.all([
+          fetch("/api/log/audit"),
+          fetch("/api/log/invoices")
+        ]);
+        if (auditResponse.ok) app.auditLogs = await auditResponse.json();
+        if (invoiceResponse.ok) app.invoiceLogs = await invoiceResponse.json();
+        app.logsLastUpdated = new Date();
+        renderLogsOverlay();
+      } catch {
+        renderLogsOverlay();
+      }
+    }
+
+    function setLogsTab(tab) {
+      app.activeLogsTab = tab;
+      renderLogsOverlay();
+    }
+
+    function renderLogsOverlay() {
+      if (!els.logsOverlay || els.logsOverlay.classList.contains("hidden")) return;
+      const auditActive = app.activeLogsTab === "audit";
+      els.auditTabBtn.className = `px-4 py-2 text-sm font-bold ${auditActive ? "bg-sky-500 text-white" : "text-slate-700 hover:bg-slate-50"}`;
+      els.invoiceTabBtn.className = `px-4 py-2 text-sm font-bold ${!auditActive ? "bg-sky-500 text-white" : "text-slate-700 hover:bg-slate-50"}`;
+      const total = auditActive ? app.auditLogs.length : app.invoiceLogs.length;
+      const shown = filteredLogs(auditActive ? app.auditLogs : app.invoiceLogs).length;
+      const updated = app.logsLastUpdated ? ` | updated ${app.logsLastUpdated.toLocaleTimeString()}` : "";
+      els.logsMeta.textContent = `${shown} of ${total} rows${updated}`;
+      els.logsTableWrap.innerHTML = auditActive ? auditTableHtml() : invoiceLogTableHtml();
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function filteredLogs(rows) {
+      const query = app.logsSearch.trim().toLowerCase();
+      if (!query) return rows;
+      return rows.filter(row => {
+        const invoice = String(row.invoice_number || "").toLowerCase();
+        const vendor = String(row.vendor_name || "").toLowerCase();
+        return invoice.includes(query) || vendor.includes(query);
+      });
+    }
+
+    function formatLogTime(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return escapeHtml(value);
+      return date.toLocaleString();
+    }
+
+    function auditRowClass(row) {
+      if (row.action === "EXTRACTION_FAILED") return "bg-red-50 border-l-4 border-red-500";
+      if (row.action === "ANOMALY_DETECTED" || row.action === "FORCE_CONFIRMED") return "bg-amber-50 border-l-4 border-amber-500";
+      if (row.actor === "user") return "bg-sky-50 border-l-4 border-sky-500";
+      return "bg-white border-l-4 border-slate-300";
+    }
+
+    function auditActorBadge(actor) {
+      return actor === "user"
+        ? `<span class="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-bold text-sky-700">user</span>`
+        : `<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">system</span>`;
+    }
+
+    function auditTableHtml() {
+      const rows = filteredLogs(app.auditLogs);
+      if (!rows.length) return emptyLogsHtml("No audit rows match this search.");
+      return `
+        <div class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <table class="w-full text-xs">
+            <thead class="sticky top-0 bg-slate-50 text-slate-500">
+              <tr>
+                <th class="px-3 py-3 text-left font-bold">Time</th>
+                <th class="px-3 py-3 text-left font-bold">Invoice</th>
+                <th class="px-3 py-3 text-left font-bold">Vendor</th>
+                <th class="px-3 py-3 text-left font-bold">Actor</th>
+                <th class="px-3 py-3 text-left font-bold">Action</th>
+                <th class="px-3 py-3 text-left font-bold">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr class="${auditRowClass(row)} border-t border-slate-100 align-top">
+                  <td class="px-3 py-3 tabular text-slate-600 whitespace-nowrap">${formatLogTime(row.logged_at)}</td>
+                  <td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(row.invoice_number || "")}</td>
+                  <td class="px-3 py-3 text-slate-700">${escapeHtml(row.vendor_name || "")}</td>
+                  <td class="px-3 py-3">${auditActorBadge(row.actor)}</td>
+                  <td class="px-3 py-3 font-bold text-slate-800">${escapeHtml(row.action || "")}</td>
+                  <td class="px-3 py-3 text-slate-700">${escapeHtml(row.detail || "")}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    function flagsSummary(flagsValue) {
+      if (!flagsValue) return "";
+      try {
+        const flags = typeof flagsValue === "string" ? JSON.parse(flagsValue) : flagsValue;
+        if (!Array.isArray(flags) || !flags.length) return "";
+        return flags.map(flag => flag.title || flag.type || "flag").join(", ");
+      } catch {
+        return String(flagsValue);
+      }
+    }
+
+    function exportedBadge(value) {
+      return Number(value) === 1
+        ? `<span class="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">Exported</span>`
+        : `<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">No</span>`;
+    }
+
+    function invoiceLogTableHtml() {
+      const rows = filteredLogs(app.invoiceLogs);
+      if (!rows.length) return emptyLogsHtml("No invoice log rows match this search.");
+      return `
+        <div class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <table class="w-full text-xs">
+            <thead class="sticky top-0 bg-slate-50 text-slate-500">
+              <tr>
+                <th class="px-3 py-3 text-left font-bold">Time</th>
+                <th class="px-3 py-3 text-left font-bold">Invoice #</th>
+                <th class="px-3 py-3 text-left font-bold">Vendor</th>
+                <th class="px-3 py-3 text-right font-bold">Total</th>
+                <th class="px-3 py-3 text-left font-bold">Status</th>
+                <th class="px-3 py-3 text-left font-bold">Flags</th>
+                <th class="px-3 py-3 text-left font-bold">Exported</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr class="border-t border-slate-100 align-top hover:bg-slate-50">
+                  <td class="px-3 py-3 tabular text-slate-600 whitespace-nowrap">${formatLogTime(row.logged_at)}</td>
+                  <td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(row.invoice_number || "")}</td>
+                  <td class="px-3 py-3 text-slate-700">${escapeHtml(row.vendor_name || "")}</td>
+                  <td class="px-3 py-3 text-right tabular font-bold text-slate-900">${money(row.total_amount, row.currency || "EUR")}</td>
+                  <td class="px-3 py-3 text-slate-700">${escapeHtml(row.status || "")}</td>
+                  <td class="px-3 py-3 text-slate-700">${escapeHtml(flagsSummary(row.flags))}</td>
+                  <td class="px-3 py-3">${exportedBadge(row.exported)}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    function emptyLogsHtml(message) {
+      return `
+        <div class="h-full min-h-[320px] grid place-items-center rounded-lg border border-dashed border-slate-300 bg-white">
+          <div class="text-center">
+            <i data-lucide="search-x" class="mx-auto h-10 w-10 text-slate-400"></i>
+            <div class="mt-3 text-sm font-bold text-slate-800">${escapeHtml(message)}</div>
+          </div>
+        </div>`;
+    }
+
+    function showToast(message, isError = false) {
+      els.toast.textContent = message;
+      els.toast.className = `fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-xl ${isError ? "bg-red-600" : "bg-slate-900"}`;
+      els.toast.classList.remove("hidden");
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => els.toast.classList.add("hidden"), 3600);
+    }
+
+    els.logsBtn.addEventListener("click", openLogsOverlay);
+    els.logsCloseBtn.addEventListener("click", closeLogsOverlay);
+    els.auditTabBtn.addEventListener("click", () => setLogsTab("audit"));
+    els.invoiceTabBtn.addEventListener("click", () => setLogsTab("invoice"));
+    els.logsSearchInput.addEventListener("input", event => {
+      app.logsSearch = event.target.value;
+      renderLogsOverlay();
+    });
+    els.settingsBtn.addEventListener("click", () => refreshServerKeyStatus(true));
+
+    els.uploadZone.addEventListener("dragover", event => {
+      event.preventDefault();
+      els.uploadZone.classList.add("dragging");
+    });
+    els.uploadZone.addEventListener("dragleave", () => els.uploadZone.classList.remove("dragging"));
+    els.uploadZone.addEventListener("drop", event => {
+      event.preventDefault();
+      els.uploadZone.classList.remove("dragging");
+      addFiles(event.dataTransfer.files);
+    });
+    els.fileInput.addEventListener("change", event => addFiles(event.target.files));
+    els.loadDemoBtn.addEventListener("click", loadDemoInvoices);
+    els.processAllBtn.addEventListener("click", processAll);
+
+    els.fileList.addEventListener("click", event => {
+      const row = event.target.closest("[data-file-id]");
+      if (!row) return;
+      app.selectedId = row.dataset.fileId;
+      app.zoom = 1;
+      renderAll();
+    });
+
+    els.viewerChrome.addEventListener("click", async event => {
+      if (event.target.closest("#zoomOutBtn")) {
+        app.zoom = Math.max(0.5, app.zoom - 0.25);
+        const inv = selectedInvoice();
+        if (inv) inv.renderToken = uid();
+        renderAll();
+      }
+      if (event.target.closest("#zoomInBtn")) {
+        app.zoom = Math.min(2.5, app.zoom + 0.25);
+        const inv = selectedInvoice();
+        if (inv) inv.renderToken = uid();
+        renderAll();
+      }
+      if (event.target.closest("#processOneBtn")) {
+        const inv = selectedInvoice();
+        if (inv) await processInvoice(inv);
+      }
+    });
+
+    els.rightPanel.addEventListener("change", event => {
+      const input = event.target.closest("[data-field]");
+      if (!input) return;
+      updateField(input.dataset.field, input.value);
+    });
+    els.rightPanel.addEventListener("click", event => {
+      if (event.target.closest("#confirmInvoiceBtn")) confirmSelectedInvoice();
+      if (event.target.closest("#removeInvoiceBtn")) removeSelectedInvoiceFromExport();
+    });
+    els.summaryFooter.addEventListener("click", event => {
+      if (event.target.closest("#addAllBtn")) confirmAllCleanInvoices();
+      if (event.target.closest("#removeAllConfirmedBtn")) removeAllConfirmedInvoices();
+      if (event.target.closest("#exportBtn")) maybeExportCsv();
+    });
+    els.cancelExportBtn.addEventListener("click", () => {
+      app.pendingExportAfterWarning = false;
+      els.exportWarningModal.classList.add("hidden");
+      els.exportWarningModal.classList.remove("flex");
+    });
+    els.confirmExportBtn.addEventListener("click", () => {
+      const warned = app.invoices.filter(inv => inv.confirmed && inv.data && validateInvoiceData(inv.data).length > 0);
+      logAudit("EXPORT_WARNING_ACKNOWLEDGED", `flagged invoice count=${warned.length}`, "user");
+      app.pendingExportAfterWarning = true;
+      maybeExportCsv();
+    });
+
+    window.addEventListener("resize", () => {
+      const inv = selectedInvoice();
+      if (inv && !inv.demo) {
+        inv.renderToken = uid();
+        renderViewer();
+      }
+    });
+
+    async function init() {
+      await hydrateServerConfig();
+      renderAll();
+      if (!hasApiKey()) showToast("Server cannot see OPENAI_API_KEY in .env. Save .env and restart the server.", true);
+    }
+
+    init();
+  </script>
+</body>
+</html>

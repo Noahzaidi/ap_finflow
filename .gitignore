@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+
+finflow.db
+*.db
+*.sqlite
+*.sqlite3
+
+invoices/
+__pycache__/
+*.py[cod]
+
+*.csv
+*.log
+Thumbs.db
+.DS_Store
